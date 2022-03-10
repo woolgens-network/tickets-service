@@ -1,0 +1,112 @@
+---
+kind: pipeline
+type: docker
+name: Java maven testing
+
+trigger:
+  branch:
+    - master
+  event:
+    - pull_request
+
+steps:
+  - name: settings
+    image: md5lukas/drone-mvn-settings
+    settings:
+      servers:
+        - id: woolgens-network
+          username: woolgens-default
+      serverSecrets:
+        from_secret: WOOLGENS_NEXUS_CREDENTIALS
+  - name: test
+    image: maven
+    depends_on: [settings, mongo]
+    commands:
+      - mvn -U test -s settings.xml
+
+services:
+  - name: mongo
+    image: mongo:4
+    ports:
+      - 27017
+
+
+---
+kind: pipeline
+type: docker
+name: Java maven testing and server deployment
+
+trigger:
+  branch:
+    - master
+  event:
+    - push
+
+steps:
+  - name: settings
+    image: md5lukas/drone-mvn-settings
+    settings:
+      servers:
+        - id: woolgens
+          username: woolgens
+      serverSecrets:
+        from_secret: WOOLGENS_NEXUS_CREDENTIALS
+  - name: install
+    image: maven
+    depends_on: [settings, mongo]
+    commands:
+      - mvn -U package -s settings.xml
+  - name: delete
+    image: appleboy/drone-ssh
+    settings:
+      host:
+        from_secret: WOOLGENS_SERVER_HOST
+      port:
+        from_secret: WOOLGENS_SERVER_PORT
+      username:
+        from_secret: WOOLGENS_SERVER_USER
+      password:
+        from_secret: WOOLGENS_SERVER_PASSWORD
+      script:
+        - rm -R /home/services/tickets-service/
+        - cp -r /home/services/template/ /home/services/tickets-service/
+  - name: deploy
+    depends_on: [install, delete]
+    image: appleboy/drone-scp
+    settings:
+      host:
+        from_secret: WOOLGENS_SERVER_HOST
+      port:
+        from_secret: WOOLGENS_SERVER_PORT
+      username:
+        from_secret: WOOLGENS_SERVER_USER
+      password:
+        from_secret: WOOLGENS_SERVER_PASSWORD
+      target: /home/services/tickets-service/app/
+      source: target/quarkus-app/*
+      strip_components: 2
+  - name: start
+    depends_on: [deploy]
+    image: appleboy/drone-ssh
+    settings:
+      host:
+        from_secret: WOOLGENS_SERVER_HOST
+      port:
+        from_secret: WOOLGENS_SERVER_PORT
+      username:
+        from_secret: WOOLGENS_SERVER_USER
+      password:
+        from_secret: WOOLGENS_SERVER_PASSWORD
+      envs:
+        - SERVICE_NAME
+      script:
+        - cd /home/services/tickets-service/
+        - export SERVICE_NAME=tickets
+        - docker-compose down
+        - docker-compose up -d --build
+
+services:
+  - name: mongo
+    image: mongo:4
+    ports:
+      - 27017
