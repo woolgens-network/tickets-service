@@ -15,4 +15,5 @@ import javax.enterprise.context.ApplicationScoped;
 @ApplicationScoped
 public class TicketStatusRepository implements PanacheMongoRepositoryBase<TicketStatus, String> {
 
+
 }
